@@ -22,8 +22,6 @@ app.add_middleware(
 # 4. Incluir nuestras rutas (apis.py)
 app.include_router(apis.router)
 
-# 5. Montar el servidor de WebSockets
-# Usamos la instancia 'sio' que creamos en apis.py
-app.mount("/ws", socketio.ASGIApp(apis.sio))
+app.mount("/socket.io", socketio.ASGIApp(apis.sio, socketio_path=""))
 
 print("🚀 Servidor iniciado. WebSockets en /ws")

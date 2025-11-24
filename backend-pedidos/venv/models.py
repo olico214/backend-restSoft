@@ -25,6 +25,8 @@ class Pedido(Base):
     phone = Column(String(50))
     estatus = Column(String(50), default="pendiente")
     user = Column(Integer)
+    type = Column(String(50))
+    comentary = Column(String(255))
 
     items = relationship("ProductsPedidos", back_populates="pedido")
 

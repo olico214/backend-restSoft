@@ -1,10 +1,9 @@
-from typing import List
+from typing import List,Optional
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import socketio
 import models 
-from fastapi import APIRouter, Depends, HTTPException # <--- Agrega HTTPException
-# 1. Creamos el Router y la instancia de SocketIO aquí
+from fastapi import APIRouter, Depends, HTTPException
 router = APIRouter()
 sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
 
@@ -17,7 +16,14 @@ class ProductCreate(BaseModel):
 
 class OrderCreate(BaseModel):
     phone: str
+    comentary: str = "" # Opcional, por defecto vacío
+    type: str
     productIds: List[int]
+
+class OrderUpdate(BaseModel):
+    estatus: str
+    comentary: str = ""
+    productIds: Optional[List[int]] = None # <--- Nuevo campo
 
 # --- RUTAS DE PRODUCTOS ---
 @router.post("/products/")
@@ -62,11 +68,12 @@ def update_product(product_id: int, product: ProductCreate, db: Session = Depend
 
 @router.post("/orders/{user_id}")
 async def create_order(user_id: int, order: OrderCreate, db: Session = Depends(models.get_db)):
-    # 1. Guardar Pedido (Ahora pasamos el user_id)
     db_pedido = models.Pedido(
         phone=order.phone, 
-        estatus="pendiente", 
-        user=user_id  # <--- Aquí asignamos el ID que viene de la URL
+        estatus="Nuevo",     # Estatus inicial
+        type=order.type,     # <--- AHORA LO LEEMOS DEL FRONT
+        comentary=order.comentary,
+        user=user_id
     )
     
     db.add(db_pedido)
@@ -88,14 +95,85 @@ async def create_order(user_id: int, order: OrderCreate, db: Session = Depends(m
     # 3. Preparar Payload WebSocket
     payload = {
         "id": db_pedido.id,
-        "user_id": user_id, # <--- Enviamos esto para filtrar en el frontend
+        "user_id": user_id,
         "phone": db_pedido.phone,
-        "estatus": "pendiente",
+        "type": db_pedido.type,         # <--- Agregado
+        "comentary": db_pedido.comentary, # <--- Agregado
+        "estatus": "Nuevo",
+        "items": items_details,
+        "created_at": str(db_pedido.id) # O un campo de fecha real si tienes
+    }
+    await sio.emit('nuevo_pedido', payload)
+    return payload
+
+@router.get("/orders/{user_id}")
+def get_orders(user_id: int, db: Session = Depends(models.get_db)):
+    # Traemos los pedidos del usuario con sus relaciones
+    orders = db.query(models.Pedido).filter(models.Pedido.user == user_id).order_by(models.Pedido.id.desc()).all()
+    
+    # Formateamos para que el front lo entienda fácil
+    result = []
+    for o in orders:
+        items = []
+        for rel in o.items:
+            # Asumiendo que tu relación está bien configurada en models.py
+            if rel.product:
+                items.append({"name": rel.product.name, "price": rel.product.price})
+        
+        result.append({
+            "id": o.id,
+            "phone": o.phone,
+            "type": o.type,
+            "estatus": o.estatus,
+            "comentary": o.comentary,
+            "items": items
+        })
+    return result
+
+@router.put("/orders/{order_id}")
+async def update_order(order_id: int, order_update: OrderUpdate, db: Session = Depends(models.get_db)):
+    db_pedido = db.query(models.Pedido).filter(models.Pedido.id == order_id).first()
+    
+    if not db_pedido:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
+
+    # A. Actualizar datos básicos
+    db_pedido.estatus = order_update.estatus
+    if order_update.comentary:
+        db_pedido.comentary = order_update.comentary
+
+    # B. Actualizar Productos (Solo si se envía la lista)
+    if order_update.productIds is not None:
+        # 1. Borrar relaciones existentes para este pedido
+        db.query(models.ProductsPedidos).filter(models.ProductsPedidos.idPedido == order_id).delete()
+        
+        # 2. Insertar las nuevas relaciones
+        for prod_id in order_update.productIds:
+            relacion = models.ProductsPedidos(idProducts=prod_id, idPedido=order_id)
+            db.add(relacion)
+
+    db.commit()
+    db.refresh(db_pedido)
+
+    # C. Reconstruir respuesta para el WebSocket
+    items_details = []
+    # Volvemos a consultar para traer las relaciones nuevas
+    updated_items = db.query(models.ProductsPedidos).filter(models.ProductsPedidos.idPedido == order_id).all()
+    
+    for rel in updated_items:
+        if rel.product:
+            items_details.append({"name": rel.product.name, "price": rel.product.price})
+
+    payload = {
+        "id": db_pedido.id,
+        "user_id": db_pedido.user,
+        "phone": db_pedido.phone,
+        "type": db_pedido.type,
+        "estatus": db_pedido.estatus,
+        "comentary": db_pedido.comentary,
         "items": items_details
     }
 
-    # 4. Emitir Evento
-    # Nota: Esto le avisa a TODOS. El frontend deberá filtrar si el mensaje es para él.
-    await sio.emit('nuevo_pedido', payload)
-    
+    await sio.emit('actualizar_pedido', payload)
+
     return payload

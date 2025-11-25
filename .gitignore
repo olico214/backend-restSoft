@@ -39,3 +39,6 @@ dist/
 .DS_Store
 .vscode/
 .idea/
+
+
+venv/

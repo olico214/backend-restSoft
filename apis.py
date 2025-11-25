@@ -35,7 +35,7 @@ class InstanceUserUpdate(BaseModel):
     iduser: int
 
 # --- RUTAS DE PRODUCTOS ---
-@router.post("/products/")
+@router.post("/products")
 def create_product(product: ProductCreate, db: Session = Depends(models.get_db)):
     db_product = models.Product(**product.dict())
     db.add(db_product)

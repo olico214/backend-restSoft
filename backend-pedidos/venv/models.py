@@ -29,7 +29,16 @@ class Pedido(Base):
     comentary = Column(String(255))
 
     items = relationship("ProductsPedidos", back_populates="pedido")
+# En models.py
 
+class InstanceUser(Base):
+    __tablename__ = "instance_user"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    url = Column(String(255)) # Longitud típica para URLs
+    iduser = Column(Integer)  # El ID del usuario asociado
+
+    
 class ProductsPedidos(Base):
     __tablename__ = "products_pedidos"
     id = Column(Integer, primary_key=True, index=True)

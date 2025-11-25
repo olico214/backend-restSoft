@@ -25,6 +25,15 @@ class OrderUpdate(BaseModel):
     comentary: str = ""
     productIds: Optional[List[int]] = None # <--- Nuevo campo
 
+
+class InstanceUserCreate(BaseModel):
+    url: str
+    iduser: int
+
+class InstanceUserUpdate(BaseModel):
+    url: str
+    iduser: int
+
 # --- RUTAS DE PRODUCTOS ---
 @router.post("/products/")
 def create_product(product: ProductCreate, db: Session = Depends(models.get_db)):
@@ -177,3 +186,43 @@ async def update_order(order_id: int, order_update: OrderUpdate, db: Session = D
     await sio.emit('actualizar_pedido', payload)
 
     return payload
+
+
+# --- RUTAS DE INSTANCE USER ---
+
+# 1. Crear nueva instancia
+@router.post("/instance_user/")
+def create_instance_user(instance: InstanceUserCreate, db: Session = Depends(models.get_db)):
+    db_instance = models.InstanceUser(
+        url=instance.url,
+        iduser=instance.iduser
+    )
+    db.add(db_instance)
+    db.commit()
+    db.refresh(db_instance)
+    return db_instance
+
+# 2. Obtener instancias por ID de usuario
+@router.get("/instance_user/{user_id}")
+def get_instances_by_user(user_id: int, db: Session = Depends(models.get_db)):
+    return db.query(models.InstanceUser).filter(models.InstanceUser.iduser == user_id).all()
+
+
+@router.put("/instance_user/{instance_id}")
+def update_instance_user(instance_id: int, instance: InstanceUserUpdate, db: Session = Depends(models.get_db)):
+    # 1. Buscar el registro por su ID
+    db_instance = db.query(models.InstanceUser).filter(models.InstanceUser.id == instance_id).first()
+
+    # 2. Verificar si existe
+    if not db_instance:
+        raise HTTPException(status_code=404, detail="Instancia no encontrada")
+
+    # 3. Actualizar los datos
+    db_instance.url = instance.url
+    db_instance.iduser = instance.iduser
+
+    # 4. Guardar cambios
+    db.commit()
+    db.refresh(db_instance)
+    
+    return db_instance
